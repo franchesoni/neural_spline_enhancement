@@ -34,7 +34,7 @@ def drawSpline(cur_spline, my_dpi=100):
 	plt.savefig(buf, format='png', bbox_inches='tight', dpi=my_dpi)
 	plt.close()
 	buf.seek(0)
-	return Image.open(buf)
+	return Image.open(buf).convert('RGB')
 
 
 def regen(dRaw, test_list, batch_size, spline, outdir, dSemSeg='', dSaliency='', \
