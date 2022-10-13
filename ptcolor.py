@@ -37,15 +37,15 @@ def _t(data):
 
 # Helper for color matrix multiplication
 def _mul(coeffs, image):
-    # This is implementation is clearly suboptimal.  The function will
-    # be implemented with 'einsum' when a bug in pytorch 0.4.0 will be
-    # fixed (Einsum modifies variables in-place #7763).
-    coeffs = coeffs.to(image.device)
-    r0 = image[:, 0:1, :, :].repeat(1, 3, 1, 1) * coeffs[:, 0].view(1, 3, 1, 1)
-    r1 = image[:, 1:2, :, :].repeat(1, 3, 1, 1) * coeffs[:, 1].view(1, 3, 1, 1)
-    r2 = image[:, 2:3, :, :].repeat(1, 3, 1, 1) * coeffs[:, 2].view(1, 3, 1, 1)
-    return r0 + r1 + r2
-    # return torch.einsum("dc,bcij->bdij", (coeffs.to(image.device), image))
+    # # This is implementation is clearly suboptimal.  The function will
+    # # be implemented with 'einsum' when a bug in pytorch 0.4.0 will be
+    # # fixed (Einsum modifies variables in-place #7763).
+    # coeffs = coeffs.to(image.device)
+    # r0 = image[:, 0:1, :, :].repeat(1, 3, 1, 1) * coeffs[:, 0].view(1, 3, 1, 1)
+    # r1 = image[:, 1:2, :, :].repeat(1, 3, 1, 1) * coeffs[:, 1].view(1, 3, 1, 1)
+    # r2 = image[:, 2:3, :, :].repeat(1, 3, 1, 1) * coeffs[:, 2].view(1, 3, 1, 1)
+    # return r0 + r1 + r2
+    return torch.einsum("dc,bcij->bdij", (coeffs.to(image.device), image))
 
 
 _RGB_TO_XYZ = {
