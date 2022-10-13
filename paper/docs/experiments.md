@@ -10,6 +10,8 @@ def fit_K_Gaussian(xs, ys, sigma=1):
     return np.linalg.inv(K)@ys
 
 
+- add extra information (deep features + histogram)
+
 
 # experiments
 
