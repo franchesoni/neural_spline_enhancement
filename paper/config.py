@@ -12,3 +12,7 @@ Path(ENH_DIR).mkdir(exist_ok=True, parents=True)
 
 RAW_DIR = '/home/franchesoni/data/mit5k/dnr/C/train/raw/'
 ENH_DIR = '/home/franchesoni/data/mit5k/dnr/C/train/target/'
+
+from jax import devices
+DEVICE = devices('cpu')[0]
+# DEVICE = devices('gpu')[0]
