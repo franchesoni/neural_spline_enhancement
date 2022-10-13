@@ -23,10 +23,6 @@ tensor([ 6.1062,  9.3593,  5.2129])
 """
 
 import torch
-from PIL import Image
-from torchvision import transforms, utils
-import os,sys
-import numpy as np
 
 
 # Helper for the creation of module-global constant tensors
@@ -45,6 +41,8 @@ def _mul(coeffs, image):
     # r1 = image[:, 1:2, :, :].repeat(1, 3, 1, 1) * coeffs[:, 1].view(1, 3, 1, 1)
     # r2 = image[:, 2:3, :, :].repeat(1, 3, 1, 1) * coeffs[:, 2].view(1, 3, 1, 1)
     # return r0 + r1 + r2
+    if image.dtype == torch.float64:
+        return torch.einsum("dc,bcij->bdij", (coeffs.to(image.device).double(), image))
     return torch.einsum("dc,bcij->bdij", (coeffs.to(image.device), image))
 
 
@@ -165,6 +163,7 @@ def rgb2xyz(rgb, gamma_correction="srgb", clip_rgb=False, space="srgb"):
         rgb = torch.clamp(rgb, 0, 1)
     rgb = remove_gamma(rgb, gamma_correction)
     return _mul(_RGB_TO_XYZ[space], rgb)
+    
 
 
 def xyz2rgb(xyz, gamma_correction="srgb", clip_rgb=False, space="srgb"):
@@ -247,7 +246,8 @@ def lab2xyz(lab, white_point="d65"):
 
 def rgb2lab(rgb, white_point="d65", gamma_correction="srgb", clip_rgb=False, space="srgb"):
     """sRGB to Lab conversion."""
-    lab = xyz2lab(rgb2xyz(rgb, gamma_correction, clip_rgb, space), white_point)
+    xyz = rgb2xyz(rgb, gamma_correction, clip_rgb, space)
+    lab = xyz2lab(xyz, white_point)
     return lab
 
 
