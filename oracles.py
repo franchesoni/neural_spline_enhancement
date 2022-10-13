@@ -17,10 +17,10 @@ class AbstractOracle(ABC):
 
 
 ####### 3d lut #########
-def pdot(ys, affinities):
+def pdot1(ys, affinities):
   return jnp.sum(ys * affinities[..., None], axis=0)
 
-jit_pdot = jit(pdot)
+jit_pdot1 = jit(pdot1)
 
 def trilinear(rgb, xs, ys, T):
   affinities = xs - rgb
@@ -28,7 +28,7 @@ def trilinear(rgb, xs, ys, T):
   affinities = affinities / T
   affinities = jnp.exp(affinities)
   affinities = affinities / jnp.sum(affinities)
-  result = jit_pdot(ys, affinities)
+  result = jit_pdot1(ys, affinities)
   return result
 
 jit_vmap_trilinear = jit(vmap(trilinear, in_axes=[0, None, None, None]), device=DEVICE)
@@ -74,5 +74,53 @@ class LUT3DOracle(AbstractOracle):
       for ind, rgb in enumerate(f_raw):
         f_enh[ind] = trilinear(rgb, xs, ys, self.T)
       return f_enh.reshape(raw.shape)
+
+####### perchannel #######
+def pdot2(ys, affinities):
+  return jnp.sum(ys * affinities, axis=0)
+
+jit_pdot2 = jit(pdot2)
+
+def interpolate_single(value, xs, ys, T):
+  affinities = - jnp.abs(xs.astype(float) - value)
+  affinities = affinities / T
+  affinities = jnp.exp(affinities)
+  affinities = affinities / jnp.sum(affinities)
+  result = jit_pdot2(ys, affinities)
+  return result
+
+jit_vmap_interpolate = jit(vmap(interpolate_single, in_axes=[0, None, None, None]), device=DEVICE)
+
+class PerChannelOracle(AbstractOracle):
+  def predict(self, raw, lut, T=1):
+    f_raw = raw.reshape(-1, 3)
+    f_enh = []
+    for ci, c in enumerate(['r', 'g', 'b']):
+      f_raw_c = f_raw[:, ci]
+      lut_c = lut[c]
+      xs, ys = jnp.array(list(lut_c.keys())), jnp.array(list(lut_c.values()))
+      f_enh_c = jit_vmap_interpolate(f_raw_c, xs, ys, T)
+      f_enh.append(f_enh_c)
+    f_enh = np.stack(f_enh, axis=1).reshape(raw.shape)
+    return f_enh
+
+  def fit(self, raw, enh):
+    f_raw = raw.reshape(-1, 3)
+    f_enh = enh.reshape(-1, 3)
+    lut = {}
+    for ci, c in enumerate(['r', 'g', 'b']):
+      lut[c] = self.find_channel_lut(f_raw[:, ci], f_enh[:, ci])
+    return lut
+
+  def find_channel_lut(self, f_raw, f_enh):
+    lut = {}
+    for ind, cvalue in enumerate(f_raw):
+      if cvalue in lut:
+        lut[cvalue].append(f_enh[ind])
+      else:
+        lut[cvalue] = [f_enh[ind]]
+    lut = {k: np.mean(v, axis=0) for k, v in lut.items()}
+    return lut
+
 
 
