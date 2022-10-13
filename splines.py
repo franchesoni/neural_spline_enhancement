@@ -8,7 +8,7 @@ class GaussianSpline:
         """
         raw: HxWx3, M=HxW
         params: dict(alphas: Nx3,
-                  xs: Nx3x3 or Nx1x3 (control points, channels-in, channels-out),
+                  xs: Nx3x3 or Nx1x3 (control points, channels-in, channels-out), i.e. provide the same xs for all channels (x1) or not (x3)
                   sigmas: 1x3)
         """
         fimg = raw.reshape(-1, 3)  # Mx3, flattened image
