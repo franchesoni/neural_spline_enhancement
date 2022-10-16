@@ -87,7 +87,6 @@ class TPS_RGB_ORDER_2:
         d = torch.linalg.norm(
             xs_eval[:, None] - xs_control[None], axis=2  # M x 1 x 3  # 1 x N x 3
         )  # M x N x 3
-        K0 = diffx.reshape(M, N)
         return torch.hstack((d, torch.ones((M,1)), xs_control))
 
     @staticmethod
@@ -97,15 +96,15 @@ class TPS_RGB_ORDER_2:
         alphas: (N+4) x 3 (output color dim) [spline weights]
         raw: HxWx3
         '''
-        image = raw.reshape(-1,3)
+        fimg = raw.reshape(-1,3)
         
         K0 = TPS_RGB_ORDER_2.build_k(fimg[:, 0:1], param['xs'][:,0,:])
         out0 = K @ params["alphas"][:, 0:1]
         
-        K1 = TPS_RGB_ORDER_2.build_k(fimg[:, 1:2], param['xs'][:,1,:]) if 1 < param["xs"].shape[1] else K0
+        K1 = TPS_RGB_ORDER_2.build_k(fimg[:, 1:2], param['xs'][:,1,:]) if 1 < params["xs"].shape[1] else K0
         out1 = K1 @ params["alphas"][:, 1:2]
         
-        K2 = TPS_RGB_ORDER_2.build_k(fimg[:, 2:3], param['xs'][:,2,:]) if 1 < param["xs"].shape[1] else K0
+        K2 = TPS_RGB_ORDER_2.build_k(fimg[:, 2:3], param['xs'][:,2,:]) if 1 < params["xs"].shape[1] else K0
         out2 = K2 @ params["alphas"][:, 2:3]
 
         out = torch.hstack([out0, out1, out2])  # Mx3
