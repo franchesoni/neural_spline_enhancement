@@ -73,6 +73,42 @@ class BiancoSpline:
 
 
 
+class TPS_RGB_ORDER_2:
+    '''params:
+		xs_control: number of control points x 3 [for each output color channel]
+		alphas: column vector, size of the number of control points [for each output color channel]
+    '''
+    @staticmethod
+    def predict(raw, params):
+
+    '''xs_control: N x 3 (input color dim) x 3 (output color dim)
+       alphas: N x 3 (output color dim)
+	   sigma: 3 (output color dim)
+       raw: HxWx3
+    '''
+    image = raw.clone()[:,:,:3]
+    _, M, N = image.shape
+    xs_test = image.reshape((M*N,3)) # I am not sure if this is correct, I want [[red1, green1, blue1], [red2, green2, blue2],...,[redMN, greenMN, blueMN]]  
+
+    # predict red
+    K_red = build_K_Gaussian(xs_control_red, xs_test, sigma=sigma_red) # should be (MN x n_control_red)
+    red_out = K_red @ alphas_red # should be (MN x 1)
+
+    # predict green
+    K_green = build_K_Gaussian(xs_control_green, xs_test, sigma=sigma_green) # should be (MN x n_control_green)
+    green_out = K_green @ alphas_green # should be (MN x 1)
+
+    # predict blue
+    K_blue = build_K_Gaussian(xs_control_blue, xs_test, sigma=sigma_blue) # should be (MN x n_control_blue)
+    blue_out = K_blue @ alphas_blue # should be (MN x 1)
+
+    image[0,:,:] = red_out # this hopefully puts the corrected colors back in the same pixel locations...
+    image[1,:,:] = green_out
+    image[2,:,:] = blue_out
+
+    return image
+
+
 
 
 
@@ -121,7 +157,7 @@ class GaussianSpline:
         d = torch.linalg.norm(
             xs[:, None] - xs_control[None], axis=2  # M x 1 x 3  # 1 x N x 3
         )  # M x N x 3
-        return torch.exp(-d / (2 * sigma**2))
+        return torch.exp(-d**2 / (2 * sigma**2))
 
     @staticmethod
     def fit_alphas(xs, ys, sigma=1):
