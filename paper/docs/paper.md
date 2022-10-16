@@ -4,6 +4,8 @@ we present a color enhancement method based on the estimation of parameters of a
 
 first we show that there is room for improvement:
   [x] 3dlut image oracle is better than per channel image oracle
+  [x] (failed) add residual to oracle
+  [x] (failed) code their spline as oracle
   [] perchannel free xs spline oracle performs better than perchannel fixed xs spline oracles
   [] free 3dlut (vector) oracles perform better than free perchannel spline oracles
   [] we can speed up the computation by predicting the alphas instead of the ys
@@ -21,6 +23,7 @@ then we train the models and evaluate the performance (over validation!)
   [] free 3dlut lab/rgb per channel
   [] free 3dlut lab/rgb per channel different architecture
   [] free 3dlut lab/rgb per channel different architecture + hsv hist
+  [] use color balance before hand
 
 
 now retrain the best model and put a table comparing against other methods

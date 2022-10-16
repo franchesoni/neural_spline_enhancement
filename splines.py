@@ -1,4 +1,80 @@
 import torch
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+class BiancoSpline:
+    def __init__(self, n):
+        self.n, self.h, self.x0 = n, 1.0 / (n-1.0), 0
+        mat = 4 * np.eye(n - 2)
+        np.fill_diagonal(mat[1:, :-1], 1)
+        np.fill_diagonal(mat[:-1, 1:], 1)
+        A = 6 * np.linalg.inv(mat) / (self.h ** 2)
+        z = np.zeros(n - 2)
+        A = np.vstack([z, A, z])
+
+        B = np.zeros([n - 2, n])
+        np.fill_diagonal(B, 1)
+        np.fill_diagonal(B[:, 1:], -2)
+        np.fill_diagonal(B[:, 2:], 1)
+        self.matrix = np.dot(A, B)
+        self.matrix = torch.from_numpy(self.matrix).double()
+        # self.matrix = self.matrix.cuda()
+
+    def predict(self, raw, params):
+        """
+        raw: HxWx3
+        params: dict(ys: 3N)
+        """
+        ys = params['ys'].reshape(3, -1)  # 3xN
+        out = torch.empty_like(raw)
+        for ch in range(3):
+            cur_ch = raw[:, :, ch].clone()
+            cur_ys = ys[ch, :].clone()
+            identity = torch.arange(0,cur_ys.size(0)).double()/(cur_ys.size(0)-1)
+            cur_coeffs = self.fit_coeffs(cur_ys+identity, 1 / (ys.shape[1]-1))
+            out[:,:,ch] = self.apply(cur_coeffs, cur_ch.view(-1)).view(cur_ch.size())
+            if ch == 2:
+                with torch.no_grad():
+                    xs =torch.arange(0,1,1.0/255.).double()
+                    b = self.apply(cur_coeffs, xs).numpy()
+                plt.plot(xs, b)
+                plt.savefig('tests/oracle_Bianco_blue_spline.png')
+        return out
+
+    def fit_coeffs(self, ys, h):
+        M = torch.mm(self.matrix, ys.view(-1,1)).squeeze()
+        a = (M[1:] - M[:-1]) / (6 * h)
+        b = M[:-1] / 2
+        c = (ys[1:] - ys[:-1]) / h - (M[1:] + 2 * M[:-1]) * (h / 6)
+        d = ys[:-1]
+        coeffs = torch.stack([a,b,c,d], dim=0)
+        return coeffs
+
+    def apply(self, coeffs, x):
+        """ interpolate new data using coefficients
+        """
+        xi = torch.clamp((x - self.x0) / self.h, 0, self.n-2)
+        xi = torch.floor(xi)
+        xf = x - self.x0 - xi*self.h
+        ones = torch.ones(xf.size())
+        ex = torch.stack([xf ** 3, xf ** 2, xf, ones], dim=0)
+        #y = np.dot(coeffs.transpose(0,1), ex)
+        y = torch.mm(coeffs.transpose(0,1), ex)
+        # create constant mat
+        sel_mat = torch.zeros(y.size(0),xi.size(0))
+        rng = torch.arange(0,xi.size(0))
+        sel_mat[xi.data.long(),rng.long()]=1
+        # multiply to get the right coeffs
+        res = y*sel_mat
+        res = res.sum(0)
+        # return
+        return res
+
+
+
+
+
 
 
 class GaussianSpline:
