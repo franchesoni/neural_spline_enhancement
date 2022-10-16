@@ -79,38 +79,37 @@ class TPS_RGB_ORDER_2:
 		alphas: column vector, size of the number of control points [for each output color channel]
     '''
     @staticmethod
+    def build_k(xs_control, xs_eval):
+        # "classic" TPS energy (m=2), null space is just the affine functions span{1, r, g, b} 
+        # xs_control : Nx3
+        # xs_eval : Mx3
+        # returns Mx(N+4) matrix
+        d = torch.linalg.norm(
+            xs_eval[:, None] - xs_control[None], axis=2  # M x 1 x 3  # 1 x N x 3
+        )  # M x N x 3
+        K0 = diffx.reshape(M, N)
+        return torch.hstack((d, torch.ones((M,1)), xs_control))
+
+    @staticmethod
     def predict(raw, params):
 
-    '''xs_control: N x 3 (input color dim) x 3 (output color dim)
-       alphas: N x 3 (output color dim)
-	   sigma: 3 (output color dim)
-       raw: HxWx3
-    '''
-    image = raw.clone()[:,:,:3]
-    _, M, N = image.shape
-    xs_test = image.reshape((M*N,3)) # I am not sure if this is correct, I want [[red1, green1, blue1], [red2, green2, blue2],...,[redMN, greenMN, blueMN]]  
+        '''xs: N x 3 (input color dim) x 3 (output color dim) [control points]
+        alphas: (N+4) x 3 (output color dim) [spline weights]
+        raw: HxWx3
+        '''
+        image = raw.reshape(-1,3)
+        
+        K0 = TPS_RGB_ORDER_2.build_k(fimg[:, 0:1], param['xs'][:,0,:])
+        out0 = K @ params["alphas"][:, 0:1]
+        
+        K1 = TPS_RGB_ORDER_2.build_k(fimg[:, 1:2], param['xs'][:,1,:]) if 1 < param["xs"].shape[1] else K0
+        out1 = K1 @ params["alphas"][:, 1:2]
+        
+        K2 = TPS_RGB_ORDER_2.build_k(fimg[:, 2:3], param['xs'][:,2,:]) if 1 < param["xs"].shape[1] else K0
+        out2 = K2 @ params["alphas"][:, 2:3]
 
-    # predict red
-    K_red = build_K_Gaussian(xs_control_red, xs_test, sigma=sigma_red) # should be (MN x n_control_red)
-    red_out = K_red @ alphas_red # should be (MN x 1)
-
-    # predict green
-    K_green = build_K_Gaussian(xs_control_green, xs_test, sigma=sigma_green) # should be (MN x n_control_green)
-    green_out = K_green @ alphas_green # should be (MN x 1)
-
-    # predict blue
-    K_blue = build_K_Gaussian(xs_control_blue, xs_test, sigma=sigma_blue) # should be (MN x n_control_blue)
-    blue_out = K_blue @ alphas_blue # should be (MN x 1)
-
-    image[0,:,:] = red_out # this hopefully puts the corrected colors back in the same pixel locations...
-    image[1,:,:] = green_out
-    image[2,:,:] = blue_out
-
-    return image
-
-
-
-
+        out = torch.hstack([out0, out1, out2])  # Mx3
+        return out.reshape(raw.shape)  # HxWx3
 
 
 class GaussianSpline:
