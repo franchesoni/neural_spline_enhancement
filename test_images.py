@@ -7,6 +7,7 @@ from PIL import Image
 from tqdm import tqdm
 import pandas as pd
 
+from regen import drawSpline
 from Dataset import Dataset
 import ptcolor
 
@@ -34,10 +35,11 @@ def lab2rgb(x,colorspace):
 								clip_rgb=True,				\
 								space=colorspace)
 
-
+def custom_collate_fn(batch):
+	return batch
 
 def test_spline(dRaw, dExpert, test_list, batch_size, spline, deltae=94, dSemSeg='', dSaliency='', \
-		nclasses=150, outdir='', outdir_splines=''):
+		nclasses=150, outdir='', outdir_splines='', custom_collate=False):
 		spline.eval()
 		# create folder
 		if outdir and not os.path.isdir(outdir): os.makedirs(outdir)
@@ -57,7 +59,8 @@ def test_spline(dRaw, dExpert, test_list, batch_size, spline, deltae=94, dSemSeg
 				shuffle = True,
 				num_workers = cpu_count(),
 				# num_workers = 0,
-				drop_last = False
+				drop_last = False,
+				collate_fn=custom_collate_fn if custom_collate else data.default_collate,
 		)
 		# create function for calculating L1
 		def L1(gt_lab, ot_lab):

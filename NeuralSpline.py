@@ -195,10 +195,16 @@ class NeuralSpline(nn.Module):
 		# convert to lab if required
 		if self.apply_to=='lab': batch = self.rgb2lab(batch)
 		# resize if needed
-		if not (batch.size(2) == 256 and batch.size(3) == 256):
-			smallbatch = F.interpolate(batch, size=(256,256),mode='bilinear')
+		if isinstance(batch, list):
+			batch = [e.cuda() for e in batch]
+			smallbatch = [F.interpolate(e[None], size=(256, 256), mode='bilinear') for e in batch]
+			smallbatch = torch.concat(smallbatch)
+			# smallbatch = smallbatch.cuda()
 		else:
-			smallbatch = batch
+			if not (batch.size(2) == 256 and batch.size(3) == 256):
+				smallbatch = F.interpolate(batch, size=(256,256),mode='bilinear')
+			else:
+				smallbatch = batch
 		# get xs of the points with CNN
 		ys = F.relu(self.c1(smallbatch))
 		ys = self.b2(F.relu(self.c2(ys)))
@@ -210,20 +216,26 @@ class NeuralSpline(nn.Module):
 		ys = torch.cat([l(ys).view(-1,3,self.n).unsqueeze(1) for l in self.fc],1) # nexp*(bs,3*n) -> (bs,nexp,3,n)
 		# now we got xs and ys. We need to create the interpolating spline
 		# out = [torch.zeros(batch.size()).cuda() for i in range(self.nexperts)]
-		out = [torch.zeros(batch.size(0),3,batch.size(2),batch.size(3)).cuda() for i in range(self.nexperts)]
-		splines = [torch.zeros(batch.size(0),3,self.xs.size(0)) for i in range(self.nexperts)]
+		if isinstance(batch, list):
+			out = [[torch.zeros(3,e.size(1),e.size(2)).cuda() for e in batch] for i in range(self.nexperts)]
+			splines = [torch.zeros(len(batch),3,self.xs.size(0)) for i in range(self.nexperts)]
+		else:
+			out = [torch.zeros(batch.size(0),3,batch.size(2),batch.size(3)).cuda() for i in range(self.nexperts)]
+			splines = [torch.zeros(batch.size(0),3,self.xs.size(0)) for i in range(self.nexperts)]
 		# for each expert
 		for nexp in range(self.nexperts):
 			# init output vars
-			cur_out = torch.zeros(batch.size()).cuda()
+			if isinstance(batch, list):
+				cur_out = [torch.zeros(e.size()).cuda() for e in batch]
+			else:
+				cur_out = torch.zeros(batch.size()).cuda()
 			# cur_splines = torch.zeros(batch.size(0),3,self.xs.size(0))
 			# for each image
-			for nimg in range(batch.size(0)):
-				cur_img = batch[nimg,:,:,:]
+			for nimg, cur_img in enumerate(batch):
 				cur_ys = ys[nimg,nexp,:,:]
 				# enhance the image with the expert spline
 				if self.apply_to=='rgb':
-					out[nexp][nimg,:,:,:], splines[nexp][nimg,:,:] = self.enhanceImage(cur_img, cur_ys)
+					out[nexp][nimg], splines[nexp][nimg] = self.enhanceImage(cur_img, cur_ys)
 				else:
 					# squeeze lab range to use spline in the range [0,1]
 					l,a,b = cur_img[0,:,:], cur_img[1,:,:], cur_img[2,:,:]
@@ -233,7 +245,7 @@ class NeuralSpline(nn.Module):
 					b = (b+110.)/220.
 					cur_img = torch.stack((l,a,b),0)
 					# calculate and apply spline
-					cur_out, cur_spline = self.enhanceImage(cur_img, cur_ys)
+					cur_out, cur_spline = self.enhanceImage(cur_img.cuda(), cur_ys)
 					# expand back to lab range
 					cur_out[0,:,:] = cur_out[0,:,:].clone() * 100.
 					cur_out[1,:,:] = (cur_out[1,:,:].clone()*220.)-110.

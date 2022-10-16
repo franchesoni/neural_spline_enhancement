@@ -67,10 +67,12 @@ def plotSplines(writer, splines, name, n_iter):
 	showImage(writer, splines_images, name, n_iter)
 
 
+def custom_collate_fn(batch):
+	return batch
 
 def train(dRaw, dExpert, train_list, val_list, batch_size, epochs, npoints, nc, colorspace='srgb', apply_to='rgb', abs=False, \
 		  downsample_strategy='avgpool', deltae=96, lr=0.001, weight_decay=0.0, dropout=0.0, dSemSeg='', dSaliency='', nclasses=150, \
-		  exp_name='', logs_dir='./logs/', models_dir='./models/', weights_from=''):
+		  exp_name='', logs_dir='./logs/', models_dir='./models/', weights_from='', custom_collate=False):
 		# define summary writer
 		expname = '{}_{}_np_{:d}_nf_{:d}_lr_{:.6f}_wd_{:.6f}_{}'.format(apply_to,colorspace,npoints,nc,lr,weight_decay,downsample_strategy)
 		if os.path.isdir(dSemSeg): expname += '_sem'
@@ -97,9 +99,10 @@ def train(dRaw, dExpert, train_list, val_list, batch_size, epochs, npoints, nc, 
 				Dataset(dRaw, dExpert, train_list, dSemSeg, dSaliency, nclasses=nclasses, trans=trans, include_filenames=False),
 				batch_size = batch_size,
 				shuffle = True,
-				num_workers = cpu_count(),
-				# num_workers = 0,
-				drop_last = False
+				drop_last = False,
+				# num_workers = cpu_count(),
+				num_workers = 0,
+				collate_fn=custom_collate_fn if custom_collate else data.default_collate,
 		)
 		# create neural spline
 		nch = 3
@@ -121,27 +124,27 @@ def train(dRaw, dExpert, train_list, val_list, batch_size, epochs, npoints, nc, 
 		for nepoch in range(start_epoch, epochs):
 			for bn, images in enumerate(train_data_loader):
 				spline.train()
-				raw = images[0]
-				experts = images[1:]
-				#print(bn)
 				start_time = time.time()
+				if isinstance(images, list):
+					raw = [img[0] for img in images]
+					experts = [img[1] for img in images]
+				else:
+					raw = images[0]
+					experts = images[1:]
+					# send to GPU
+					raw = raw.cuda()
+					for i in range(len(experts)): experts[i] = experts[i].cuda()
+					# force gradient saving
+					raw.requires_grad = True
 				# reset gradients
 				spline.zero_grad()
 				optimizer.zero_grad()
-				# send to GPU
-				raw = raw.cuda()
-				for i in range(len(experts)): experts[i] = experts[i].cuda()
-				# force gradient saving
-				raw.requires_grad = True
+
 				# apply spline transform
 				out, splines = spline(raw)
 				# convert to lab
-				out_lab, gt_lab = [],[]
-				for i in range(len(experts)): gt_lab.append(spline.rgb2lab(experts[i]))
-				if apply_to=='rgb':
-					for i in range(len(out)): out_lab.append(spline.rgb2lab(out[i]))
-				else:
-					out_lab = out
+				out_lab = [spline.rgb2lab(outi[None]).cuda() for outi in out[0]] if apply_to=='rgb' else out
+				gt_lab = [spline.rgb2lab(expert[None]).cuda() for expert in experts]
 				# calculate loss
 				losses, loss = [], 0
 				for i in range(len(out_lab)):
@@ -151,7 +154,7 @@ def train(dRaw, dExpert, train_list, val_list, batch_size, epochs, npoints, nc, 
 						cur_loss = ptcolor.deltaE(gt_lab[i], out_lab[i])
 					cur_loss = cur_loss.mean()
 					losses.append(cur_loss)
-					writer.add_scalar('train_loss_{}'.format(experts_names[i]), cur_loss.data.cpu().mean(), curr_iter)
+					writer.add_scalar('train_loss', cur_loss.data.cpu().mean(), curr_iter)
 					loss += cur_loss
 				# divide loss by the number of experts
 				loss /= len(out_lab)
@@ -163,21 +166,22 @@ def train(dRaw, dExpert, train_list, val_list, batch_size, epochs, npoints, nc, 
 				optimizer.step()
 				# update optimizer
 				if bn % (100 if curr_iter < 200 else 200) == 0:
-					showImage(writer, raw, 'train_input', curr_iter)
-					showImage(writer, spline.c1.weight[:,:3,:,:], 'c1_filters', curr_iter, padding=2, normalize=False)
-					showImage(writer, spline.c1.weight[:,:3,:,:], 'c1_filters_normalized', curr_iter, padding=2, normalize=True)
-					for i in range(len(experts)):
-						cur_out = out[i] if apply_to=='rgb' else spline.lab2rgb(out[i])
-						showImage(writer, cur_out.detach(), 'train_output_'+experts_names[i], curr_iter)
-						showImage(writer, experts[i], 'train_gt_'+experts_names[i], curr_iter)
-						plotSplines(writer, splines[i], 'splines_'+experts_names[i], curr_iter)
-					# add histograms
-					for name, param in spline.named_parameters():
-						try:
-							writer.add_histogram(name, param.detach().cpu().numpy(), curr_iter)
-						except:
-							print('BOOOM! EXPLODED!!! NaNs in network weights. Problems in gamma correction?')
-							sys.exit(-1)
+					if not isinstance(raw, list):
+						showImage(writer, raw, 'train_input', curr_iter)
+						showImage(writer, spline.c1.weight[:,:3,:,:], 'c1_filters', curr_iter, padding=2, normalize=False)
+						showImage(writer, spline.c1.weight[:,:3,:,:], 'c1_filters_normalized', curr_iter, padding=2, normalize=True)
+						for i in range(len(experts)):
+							cur_out = out[i] if apply_to=='rgb' else spline.lab2rgb(out[i])
+							showImage(writer, cur_out.detach(), 'train_output_'+experts_names[i], curr_iter)
+							showImage(writer, experts[i], 'train_gt_'+experts_names[i], curr_iter)
+							plotSplines(writer, splines[i], 'splines_'+experts_names[i], curr_iter)
+						# add histograms
+						for name, param in spline.named_parameters():
+							try:
+								writer.add_histogram(name, param.detach().cpu().numpy(), curr_iter)
+							except:
+								print('BOOOM! EXPLODED!!! NaNs in network weights. Problems in gamma correction?')
+								sys.exit(-1)
 				if bn % 100 == 0:
 					savepath = os.path.join(models_dir, expname + '.pth')
 					torch.save({
@@ -201,7 +205,7 @@ def train(dRaw, dExpert, train_list, val_list, batch_size, epochs, npoints, nc, 
 				curr_iter = curr_iter + 1
 			# at the end of each epoch, test values
 			names, acc = test_spline(dRaw, dExpert, val_list, batch_size, spline, deltae=deltae, dSemSeg=dSemSeg, \
-									dSaliency=dSaliency, nclasses=150, outdir='', outdir_splines='')
+									dSaliency=dSaliency, nclasses=150, outdir='', outdir_splines='', custom_collate=custom_collate)
 			# save in tensorboard
 			for ne in range(len(acc)):
 				cur_exp_name = experts_names[ne]
@@ -237,6 +241,7 @@ if __name__ == '__main__':
 								   default="/home/flavio/datasets/fivek_siggraph2018_mit/train1+2-list.txt")
 	parser.add_argument("-vl", "--val_list", help="Validation list.",
 								   default="/home/flavio/datasets/fivek_siggraph2018_mit/test-list.txt")
+	parser.add_argument("-dc", "--custom_collate", action='store_true', help="Use torch's default collate_fn", default=False)
 	# output params
 	parser.add_argument("-ld", "--logs_dir", help="Folder where logs will be saved.",
 								   default='./logs/')
@@ -275,4 +280,4 @@ if __name__ == '__main__':
 		args.nepochs, args.npoints, args.nfilters, colorspace=args.colorspace, apply_to=args.apply_to, abs=args.abs, \
 		downsample_strategy=args.downsample_strategy, deltae=args.deltae, lr=args.lr, weight_decay=args.weight_decay, \
 		dropout=args.dropout, dSemSeg=args.semseg_dir, dSaliency=args.saliency_dir, nclasses=args.nclasses, exp_name=args.expname, \
-		logs_dir=args.logs_dir, models_dir=args.models_dir) #, weights_from=weights_from)
+		logs_dir=args.logs_dir, models_dir=args.models_dir, custom_collate=args.custom_collate) #, weights_from=weights_from)
