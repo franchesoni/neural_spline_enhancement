@@ -1,7 +1,7 @@
 test_list_path = "/home/franchesoni/adisk/datasets/mit5k/C/random250.txt"
 
 SEED = 0
-N_TRAINVAL = 100
+N_TRAINVAL = 4750
 val_ratio = 0.05
 
 import random
@@ -23,10 +23,10 @@ train_filenames = list(map(format, trainval_filenames[:N_TRAIN]))
 val_filenames = list(map(format, trainval_filenames[N_TRAIN:N_TRAINVAL]))
 test_filenames = list(map(format, test_filenames))
 
-with open('train_fnames.txt', 'w') as f:
+with open('paper/processing/train_fnames.txt', 'w') as f:
   f.writelines(train_filenames)
-with open('val_fnames.txt', 'w') as f:
+with open('paper/processing/val_fnames.txt', 'w') as f:
   f.writelines(val_filenames)
-with open('test_fnames.txt', 'w') as f:
+with open('paper/processing/test_fnames.txt', 'w') as f:
   f.writelines(test_filenames)
 
