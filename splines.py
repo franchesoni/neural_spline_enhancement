@@ -93,6 +93,20 @@ class TPS_RGB_ORDER_2:
         return torch.hstack((d, torch.ones((M,1)), xs_control))
 
     @staticmethod
+    def build_k_train(xs_control, xs_eval, l):
+        # "classic" TPS energy (m=2), null space is just the affine functions span{1, r, g, b} 
+        # xs_control : Nx3
+        # xs_eval : Mx3
+        # returns Mx(N+4) matrix
+        M = xs_eval.shape[0]
+        d = torch.linalg.norm(
+            xs_eval[:, None] - xs_control[None], axis=2  # M x 1 x 3  # 1 x N x 3
+        )  + l*torch.linalg.eye(M)
+        top = torch.hstack((d, torch.ones((M,1)), xs_control))
+        bottom = torch.hstack((torch.ones((1,M)), xs_control.T, torch.zeros((4,4))))
+        return torch.vstack((top,bottom))
+
+    @staticmethod
     def predict(raw, params):
 
         '''xs: N x 3 (input color dim) x 3 (output color dim) [control points]
