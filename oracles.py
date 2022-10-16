@@ -193,7 +193,79 @@ from PIL import Image
 from splines import GaussianSpline
 from ptcolor import deltaE94, rgb2lab
 
+class TPS_order2_RGB_oracle(AbstractOracle):
+    def __init__(self, n_knots=[30], n_iter=1000):
+        self.n_knots = n_knots
+        self.n_iter = n_iter
+    
+    def fit(self, raw, enh, verbose=True):
+        params = self.init_params()  # init params
+        optim = torch.optim.AdamW([{'params': params['sigmas'], 'lr':1.25}, {'params':params['alphas'], 'lr':1.25e2}, {'params':params['xs'], 'lr':1.25e1}])
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, 'min', factor=0.5, patience=5, verbose=True)
 
+        traw, tenh = torch.from_numpy(raw).double(), torch.from_numpy(enh).double()
+
+        best_loss = 1e9
+        for i in range(self.n_iter):
+            out = traw + TPS_RGB_ORDER_2.predict(traw, params)  # predict residual
+
+            loss = compute_bianco_loss(out, tenh)
+            if self.verbose:
+                print(f"iter {i+1}/{self.n_iter}, loss:", loss)
+                if loss < best_loss:
+                    best_loss = loss
+                    outimg = np.clip(out.detach().numpy(), 0, 255).astype(np.uint8)
+                    Image.fromarray(outimg).save(f'tests/oracle_Gaussian_best.png')
+                    self.params = params
+                outimg = np.clip(out.detach().numpy(), 0, 255).astype(np.uint8)
+                Image.fromarray(outimg).save(f'tests/oracle_Gaussian_current.png')
+            scheduler.step(loss)
+            loss.backward()
+            optim.step()
+
+        return self.params
+
+    def predict(self, raw, params=None):
+      if type(raw) != torch.Tensor:
+        raw = torch.from_numpy(raw).double()
+      with torch.no_grad():
+        out = TPS_RGB_ORDER_2.predict(raw, params).numpy()
+      return out
+
+    def init_params(raw, enh, l=0.01):
+        if type(raw) != torch.Tensor:
+            raw = torch.from_numpy(raw).double()
+        if type(enh) != torch.Tensor:
+            enh = torch.from_numpy(enh).double()
+        r_img = raw.reshape(-1, 3) 
+        e_img = enh.reshape(-1, 3)
+        M = len(r_img)
+
+        # choose n_knots random knots
+        if len(n_knots == 1):
+            idxs = np.random.shuffle(np.arange(M))[:n_knots]
+            K = TPS_RGB_ORDER_2.build_k_train(r_img[idxs,:], l=l)
+            alphas = torch.linalg.pinv(K)@e_img[idxs,:]
+            d = {'alphas': alphas, 'xs': r_img[idxs,:]}
+            return d
+
+        # n_knots is given as an array (number_of_knots_red, number_of_knots_green, number_of_knots_blue) 
+        # TODO: allow ragged arrays for different numbers of knots in each channel
+        idxs0 = np.random.shuffle(np.arange(M))[:n_knots[0]]
+        K0 = TPS_RGB_ORDER_2.build_k_train(r_img[idxs0,:], l=l)
+        alphas0 = torch.linalg.pinv(K)@e_img[idxs,0]
+        idxs1 = np.random.shuffle(np.arange(M))[:n_knots[1]]
+        K1 = TPS_RGB_ORDER_2.build_k_train(r_img[idxs1,:], l=l)
+        alphas1 = torch.linalg.pinv(K)@e_img[idxs,1]
+        idxs2 = np.random.shuffle(np.arange(M))[:n_knots[2]]
+        K2 = TPS_RGB_ORDER_2.build_k_train(r_img[idxs2,:], l=l)
+        alphas2 = torch.linalg.pinv(K)@e_img[idxs,2]
+        d = {'alphas': torch.hstack((alphas0, alphas1, alphas2)), 'xs': torch.hstack((r_img[idxs0,:], r_img[idxs1,:], r_img[idxs2,:]))}
+        return d
+
+         
+
+                      
 class GaussianOracle(AbstractOracle):
     def __init__(self, n_knots=30, n_iter=1000, per_channel=False, verbose=False):
         self.n_knots = n_knots
