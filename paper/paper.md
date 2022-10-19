@@ -7,6 +7,12 @@ first we show that there is room for improvement:
   [x] (failed) add residual to oracle
   [x] (failed) code their spline as oracle
   [x] run baseline code
+  [] reproduce results
+    [] run expert C with new dataset on random250
+    [] run expert C with new dataset on 1000 test images
+    [] replan
+    [] retrain over new dataset rotated and evaluate on 1000 and random250
+    [] retrain over new dataset without rotation and evaluate on 1000 and random250
   [] evaluate baseline code
   [] modify collate_fn in baseline code
   [] perchannel free xs spline oracle performs better than perchannel fixed xs spline oracles
