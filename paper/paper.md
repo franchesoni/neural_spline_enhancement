@@ -6,9 +6,9 @@ first we show that there is room for improvement:
   [x] 3dlut image oracle is better than per channel image oracle
   [x] (failed) add residual to oracle
   [x] (failed) code their spline as oracle
-  [] modify collate_fn in baseline code
   [x] run baseline code
   [] evaluate baseline code
+  [] modify collate_fn in baseline code
   [] perchannel free xs spline oracle performs better than perchannel fixed xs spline oracles
   [] free 3dlut (vector) oracles perform better than free perchannel spline oracles
   [] we can speed up the computation by predicting the alphas instead of the ys
