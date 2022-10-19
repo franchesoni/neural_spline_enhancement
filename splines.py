@@ -71,8 +71,6 @@ class BiancoSpline:
         # return
         return res
 
-
-
 class TPS_RGB_ORDER_2:
     '''
     Thin plate spline of order 2
@@ -81,16 +79,20 @@ class TPS_RGB_ORDER_2:
 		alphas: column vector, size of the number of control points [for each output color channel]
     '''
     @staticmethod
-    def build_k(xs_control, xs_eval):
+    def build_k(xs_eval, xs_control):
         # "classic" TPS energy (m=2), null space is just the affine functions span{1, r, g, b} 
         # xs_control : Nx3
         # xs_eval : Mx3
         # returns Mx(N+4) matrix
         M = xs_eval.shape[0]
+        print("XS EVAL", xs_eval.shape)
+        print("xs_eval", xs_eval.shape, "xs_control", xs_control.shape)
+        print("diff", (xs_eval[:,None]-xs_control[None]).shape)
         d = torch.linalg.norm(
-            xs_eval[:, None] - xs_control[None], axis=2  # M x 1 x 3  # 1 x N x 3
+            xs_eval[:,None] - xs_control[None], axis=2  # M x 1 x 3  # 1 x N x 3
         )  # M x N x 3
-        return torch.hstack((d, torch.ones((M,1)), xs_control))
+        print("d", d.shape, "xs", xs_control.shape, "M", M) 
+        return torch.hstack((d, torch.ones((M,1)), xs_eval))
 
     @staticmethod
     def build_k_train(xs_control, l):
@@ -101,9 +103,11 @@ class TPS_RGB_ORDER_2:
         M = xs_control.shape[0]
         d = torch.linalg.norm(
             xs_control[:, None] - xs_control[None], axis=2
-        )  + l*torch.linalg.eye(M)
+        )  + l*torch.eye(M)
         top = torch.hstack((d, torch.ones((M,1)), xs_control))
-        bottom = torch.hstack((torch.ones((1,M)), xs_control.T, torch.zeros((4,4))))
+        print("top", top, "shape", top.shape)
+        print("xs_control.T", xs_control.T.shape)
+        bottom = torch.hstack((torch.vstack((torch.ones((1,M)), xs_control.T)), torch.zeros((4,4))))
         return torch.vstack((top,bottom))
 
     @staticmethod
@@ -114,17 +118,10 @@ class TPS_RGB_ORDER_2:
         raw: HxWx3
         '''
         fimg = raw.reshape(-1, 3)  # Mx3, flattened image
+               
+        K = TPS_RGB_ORDER_2.build_k(fimg, params['xs'])
+        out = K @ params["alphas"]
         
-        K0 = TPS_RGB_ORDER_2.build_k(fimg[:, 0:1], params['xs'][:,0,:])
-        out0 = K0 @ params["alphas"][:, 0:1]
-        
-        K1 = TPS_RGB_ORDER_2.build_k(fimg[:, 1:2], params['xs'][:,1,:]) if 1 < params["xs"].shape[1] else K0
-        out1 = K1 @ params["alphas"][:, 1:2]
-        
-        K2 = TPS_RGB_ORDER_2.build_k(fimg[:, 2:3], params['xs'][:,2,:]) if 1 < params["xs"].shape[1] else K0
-        out2 = K2 @ params["alphas"][:, 2:3]
-
-        out = torch.hstack([out0, out1, out2])  # Mx3
         return out.reshape(raw.shape)  # HxWx3
 
 
