@@ -1,7 +1,6 @@
 import time
 from abc import ABC, abstractmethod
 import numpy as np
-
 from paper.config import DEVICE
 
 import torch
@@ -48,22 +47,22 @@ def compute_bianco_loss(out, enh):
 
 
 class TPS_order2_RGB_oracle(AbstractOracle):
-    def __init__(self, n_knots=[5], n_iter=1000, d_null = 4):
+    def __init__(self, n_knots=[30], n_iter=1000, d_null = 4):
         self.n_knots = n_knots
         self.n_iter = n_iter
         self.d_null = d_null
     
     def fit(self, raw, enh, verbose=True):
         params = self.init_params(raw, enh)
-        optim = torch.optim.AdamW([{'params':params['alphas'], 'lr':0.1}, {'params':params['xs'], 'lr':0.1}])
+        optim = torch.optim.AdamW([{'params':params['alphas'], 'lr':0.001}, {'params':params['xs'], 'lr':0.001}])
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, 'min', factor=0.5, patience=5, verbose=True)
 
         traw, tenh = torch.from_numpy(raw).double(), torch.from_numpy(enh).double()
         best_loss = 1e9
+        print("TRANSFORMATION LOSS", compute_bianco_loss(traw, tenh))
         for i in range(self.n_iter):
             out = TPS_RGB_ORDER_2.predict(traw, params) 
             loss = compute_bianco_loss(out, tenh)
-            print("INITIAL LOSS", loss)
             if verbose:
                 print(f"iter {i+1}/{self.n_iter}, loss:", loss)
                 if loss < best_loss:
@@ -76,6 +75,7 @@ class TPS_order2_RGB_oracle(AbstractOracle):
             scheduler.step(loss)
             loss.backward()
             optim.step()
+            time.sleep(1)
 
         return self.params
 
