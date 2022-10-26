@@ -2,3 +2,6 @@
 *_fnames.txt
 figs/
 *.png
+**/env_pl/
+**/lightning_logs/
+
