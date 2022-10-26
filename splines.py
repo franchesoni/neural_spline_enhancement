@@ -92,7 +92,7 @@ class TPS_RGB_ORDER_2:
             xs_eval[:,None] - xs_control[None], axis=2  # M x 1 x 3  # 1 x N x 3
         )  # M x N x 3
         print("d", d.shape, "xs", xs_control.shape, "M", M) 
-        return torch.hstack((d, torch.ones((M,1)), xs_eval))
+        return torch.hstack((d, torch.ones((M,1)), xs_eval)).requires_grad_()
 
     @staticmethod
     def build_k_train(xs_control, l):

@@ -48,22 +48,22 @@ def compute_bianco_loss(out, enh):
 
 
 class TPS_order2_RGB_oracle(AbstractOracle):
-    def __init__(self, n_knots=[30], n_iter=1000, d_null = 4):
+    def __init__(self, n_knots=[5], n_iter=1000, d_null = 4):
         self.n_knots = n_knots
         self.n_iter = n_iter
         self.d_null = d_null
     
     def fit(self, raw, enh, verbose=True):
-        params = self.init_params(raw, enh)  # init params
-        optim = torch.optim.AdamW([{'params':params['alphas'], 'lr':1e2}, {'params':params['xs'], 'lr':1e2}])
+        params = self.init_params(raw, enh)
+        optim = torch.optim.AdamW([{'params':params['alphas'], 'lr':0.1}, {'params':params['xs'], 'lr':0.1}])
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, 'min', factor=0.5, patience=5, verbose=True)
 
         traw, tenh = torch.from_numpy(raw).double(), torch.from_numpy(enh).double()
         best_loss = 1e9
         for i in range(self.n_iter):
             out = TPS_RGB_ORDER_2.predict(traw, params) 
-            print("params", params)
             loss = compute_bianco_loss(out, tenh)
+            print("INITIAL LOSS", loss)
             if verbose:
                 print(f"iter {i+1}/{self.n_iter}, loss:", loss)
                 if loss < best_loss:
@@ -74,7 +74,6 @@ class TPS_order2_RGB_oracle(AbstractOracle):
                 outimg = np.clip(out.detach().numpy(), 0, 255).astype(np.uint8)
                 Image.fromarray(outimg).save(f'tests/oracle_TPS_current.png')
             scheduler.step(loss)
-            loss.requires_grad = True
             loss.backward()
             optim.step()
 
@@ -108,7 +107,7 @@ class TPS_order2_RGB_oracle(AbstractOracle):
             print("e_img", e_img[idxs,:].shape)
             y = torch.vstack((e_img[idxs,:], torch.zeros((self.d_null,3))))
             alphas = torch.linalg.pinv(K)@y
-            d = {'alphas': alphas, 'xs': r_img[idxs,:]}
+            d = {'alphas': torch.tensor(alphas.detach().numpy(), dtype=torch.float64).requires_grad_(), 'xs': torch.tensor(r_img[idxs,:].detach().numpy(), dtype=torch.float64).requires_grad_()}
             return d
 
         # n_knots is given as an array (number_of_knots_red, number_of_knots_green, number_of_knots_blue) 
@@ -123,12 +122,14 @@ class TPS_order2_RGB_oracle(AbstractOracle):
         idxs1 = idxs1[:self.n_knots[1]]
         K1 = TPS_RGB_ORDER_2.build_k_train(r_img[idxs1,:], l=l)
         alphas1 = torch.linalg.pinv(K)@e_img[idxs,1]
-        idxs2 = np.arane(M)
+        idxs2 = np.arange(M)
         np.random.shuffle(idxs2)
         idxs2 = idxs2[:self.n_knots[2]]
         K2 = TPS_RGB_ORDER_2.build_k_train(r_img[idxs2,:], l=l)
         alphas2 = torch.linalg.pinv(K)@e_img[idxs,2]
-        d = {'alphas': torch.hstack((alphas0, alphas1, alphas2)), 'xs': torch.hstack((r_img[idxs0,:], r_img[idxs1,:], r_img[idxs2,:]))}
+        alphas_all = torch.hstack((alphas0, alphas1, alphas2))
+        xs_all = torch.hstack((r_img[idxs0,:], r_img[idxs1,:], r_img[idxs2,:]))
+        d = {'alphas': torch.tensor(alphas_all.detach().numpy(), dtype=torch.float64).requires_grad_(), 'xs': torch.tensor(xs_all.detach().numpy(), dtype=torch.float64).requires_grad_()}
         return d
 
          
