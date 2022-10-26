@@ -5,8 +5,37 @@ from abc import ABC, abstractmethod
 from torchvision.transforms.functional import resize
 from torchvision.utils import make_grid
 
-from backbones import GammaBackbone
+from backbones import GammaBackbone, SpliNetBackbone
 
+class SimplestSpline(nn.Module):
+  def __init__(self):
+    super().__init__()
+	self.backbone = SpliNetBackbone(n=5, nc=8, n_input_channels=3)
+
+  def get_params(self, x):
+	return {'ys': self.backbone(x)}
+
+  def enhance(self, x, params):
+    # x is (B, 3, H, W)
+    # something sophisticated
+	out = x.clone()
+    for channel_ind in range(x.shape[1]):
+      out[:, channel_ind] = self.apply_to_one_channel(out[:, channel_ind], params)
+	return out
+  
+  def apply_to_one_channel(self, x, params):
+    # x is (B, H, W)
+    # params is {'ys': ys} and ys is (B, N=5)
+    # something sophisticated
+    y_ctrl_vals = params['ys']
+    x_ctrl_vals = np.linspace(0, 255, len(y_ctrl_vals)+2)
+    slopes = np.linalg.diff(y_ctrl_vals)/(x_ctrl_vals[1]-x_ctrl_vals[0])
+    out = x*slopes[0]
+    for i in range(1,len(y_ctrl_vals)+1):
+        out += nn.functional.relu(x-x_ctrl_vals[i])*slopes[i]
+    return out
+
+    
 
 class AverageGammaLUTNet(nn.Module):
   # LUT methods

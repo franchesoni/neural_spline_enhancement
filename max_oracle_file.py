@@ -46,7 +46,7 @@ def compute_bianco_loss(out, enh):
     return deltaE94(enh_lab, out_lab).mean()
 
 class TPS_order2_oracle_slow_train(AbstractOracle):
-    def __init__(self, n_knots=[100], n_iter=1000, d_null = 4):
+    def __init__(self, n_knots=[200], n_iter=1000, d_null = 4):
         self.n_knots = n_knots
         self.n_iter = n_iter
         self.d_null = d_null
