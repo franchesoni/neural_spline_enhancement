@@ -80,7 +80,7 @@ class TPS_RGB_ORDER_2:
     '''
     @staticmethod
     def build_k(xs_eval, xs_control):
-        # "classic" TPS energy (m=2), null space is just the affine functions span{1, r, g, b} 
+        # "classic" TPS energy (m=2), null space is just the affine functions span{1, r, g, b} if for instance the dimension of the null space is 3
         # xs_control : Nx3
         # xs_eval : Mx3
         # returns Mx(N+4) matrix
@@ -108,7 +108,7 @@ class TPS_RGB_ORDER_2:
         top = torch.hstack((d, torch.ones((M,1)), xs_control))
         print("top", top, "shape", top.shape)
         print("xs_control.T", xs_control.T.shape)
-        bottom = torch.hstack((torch.vstack((torch.ones((1,M)), xs_control.T)), torch.zeros((dim_null,dim_null))))
+        bottom = torch.hstack((torch.vstack((torch.ones((1,M)), xs_control.T)), torch.zeros((dim_null+1,dim_null+1))))
         return torch.vstack((top,bottom))
 
     @staticmethod
