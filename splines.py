@@ -101,13 +101,14 @@ class TPS_RGB_ORDER_2:
         # xs_eval : Mx3
         # returns Mx(N+4) matrix
         M = xs_control.shape[0]
+        dim_null = xs_control.shape[1]
         d = torch.linalg.norm(
             xs_control[:, None] - xs_control[None], axis=2
         )  + l*torch.eye(M)
         top = torch.hstack((d, torch.ones((M,1)), xs_control))
         print("top", top, "shape", top.shape)
         print("xs_control.T", xs_control.T.shape)
-        bottom = torch.hstack((torch.vstack((torch.ones((1,M)), xs_control.T)), torch.zeros((4,4))))
+        bottom = torch.hstack((torch.vstack((torch.ones((1,M)), xs_control.T)), torch.zeros((dim_null,dim_null))))
         return torch.vstack((top,bottom))
 
     @staticmethod
