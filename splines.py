@@ -71,6 +71,32 @@ class BiancoSpline:
         # return
         return res
 
+class TPS_RGB_ORDER_2_slow_train:
+    '''
+    Thin plate spline of order 2
+    params:
+        xs_control: number of control points x 3 [or for each output "color" channel]
+        ys_control: number of control points x 3 [or for each output "color" channel]
+        lambdas: param > 1 x 3 [or for each output "color" channel]
+    '''
+    @staticmethod
+    def predict(raw, params):
+
+        '''xs: N x 3 (input color dim) x 3 (output color dim) [control points]
+        alphas: (N+4) x 3 (output color dim) [spline weights]
+        raw: HxWx3
+        '''
+        fimg = raw.reshape(-1, raw.shape[2])  # Mx3, flattened image
+        out = torch.empty_like(raw.reshape(-1, raw.shape[2]))
+        for i in range(raw.shape[2]):
+            K_ch_i = TPS_RGB_ORDER_2.build_k_train(params['xs'], l=params['lambdas'][:,i])
+            K_pred_i = TPS_RGB_ORDER_2.build_k(fimg, params['xs'])
+            nctrl = len(params['xs'])
+            zs = torch.zeros((raw.shape[2]+1,1)).requires_grad_()
+            ys = params['ys'][:,i].reshape((nctrl,1))
+            out[:,i] = K_pred_i @ torch.linalg.pinv(K_ch_i) @ (torch.cat((ys,zs)).flatten())
+        return out.reshape(raw.shape)  # HxWx3
+
 class TPS_RGB_ORDER_2:
     '''
     Thin plate spline of order 2
@@ -85,13 +111,9 @@ class TPS_RGB_ORDER_2:
         # xs_eval : Mx3
         # returns Mx(N+4) matrix
         M = xs_eval.shape[0]
-        print("XS EVAL", xs_eval.shape)
-        print("xs_eval", xs_eval.shape, "xs_control", xs_control.shape)
-        print("diff", (xs_eval[:,None]-xs_control[None]).shape)
         d = torch.linalg.norm(
             xs_eval[:,None] - xs_control[None], axis=2  # M x 1 x 3  # 1 x N x 3
         )  # M x N x 3
-        print("d", d.shape, "xs", xs_control.shape, "M", M) 
         return torch.hstack((d, torch.ones((M,1)), xs_eval)).requires_grad_()
 
     @staticmethod
@@ -106,10 +128,8 @@ class TPS_RGB_ORDER_2:
             xs_control[:, None] - xs_control[None], axis=2
         )  + l*torch.eye(M)
         top = torch.hstack((d, torch.ones((M,1)), xs_control))
-        print("top", top, "shape", top.shape)
-        print("xs_control.T", xs_control.T.shape)
         bottom = torch.hstack((torch.vstack((torch.ones((1,M)), xs_control.T)), torch.zeros((dim_null+1,dim_null+1))))
-        return torch.vstack((top,bottom))
+        return torch.vstack((top,bottom)).requires_grad_()
 
     @staticmethod
     def predict(raw, params):
@@ -118,7 +138,7 @@ class TPS_RGB_ORDER_2:
         alphas: (N+4) x 3 (output color dim) [spline weights]
         raw: HxWx3
         '''
-        fimg = raw.reshape(-1, 3)  # Mx3, flattened image
+        fimg = raw.reshape(-1, raw.shape[2])  # Mx3, flattened image
                
         K = TPS_RGB_ORDER_2.build_k(fimg, params['xs'])
         out = K @ params["alphas"]

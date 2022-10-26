@@ -6,7 +6,7 @@ from paper.config import DEVICE
 import torch
 from PIL import Image
 
-from splines import BiancoSpline, TPS_RGB_ORDER_2, GaussianSpline
+from splines import BiancoSpline, TPS_RGB_ORDER_2, GaussianSpline, TPS_RGB_ORDER_2_slow_train
 from ptcolor import deltaE94, rgb2lab
 
 
@@ -44,6 +44,68 @@ def compute_bianco_loss(out, enh):
         space="srgb",
     )
     return deltaE94(enh_lab, out_lab).mean()
+
+class TPS_order2_oracle_slow_train(AbstractOracle):
+    def __init__(self, n_knots=[100], n_iter=1000, d_null = 4):
+        self.n_knots = n_knots
+        self.n_iter = n_iter
+        self.d_null = d_null
+
+    def fit(self, raw, enh, verbose=True):
+        params = self.init_params(raw, enh)
+        optim = torch.optim.AdamW([{'params':params['ys'], 'lr':0.005}, {'params':params['xs'], 'lr':0.02}, {'params':params['lambdas'], 'lr':0.0004}])
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, 'min', factor=0.9, patience=10, verbose=True)
+
+        traw, tenh = torch.from_numpy(raw).double(), torch.from_numpy(enh).double()
+        best_loss = 1e9
+        print("TRANSFORMATION LOSS", compute_bianco_loss(traw, tenh))
+        for i in range(self.n_iter):
+            out = TPS_RGB_ORDER_2_slow_train.predict(traw, params)
+            loss = compute_bianco_loss(out, tenh)
+            if verbose:
+                print(f"iter {i+1}/{self.n_iter}, loss:", loss)
+                if loss < best_loss:
+                    best_loss = loss
+                    outimg = np.clip(out.detach().numpy(), 0, 255).astype(np.uint8)
+                    Image.fromarray(outimg).save(f'tests/oracle_TPS_best.png')
+                    self.params = params
+                outimg = np.clip(out.detach().numpy(), 0, 255).astype(np.uint8)
+                Image.fromarray(outimg).save(f'tests/oracle_TPS_current.png')
+            scheduler.step(loss)
+            loss.backward()
+            optim.step()
+            time.sleep(1)
+
+        return self.params
+
+    def predict(self, raw, params=None):
+      if type(raw) != torch.Tensor:
+        raw = torch.from_numpy(raw).double()
+      with torch.no_grad():
+        out = TPS_RGB_ORDER_2_slow_train.predict(raw, params).numpy()
+      return out
+
+    def init_params(self, raw, enh, l=0.01):
+        print("type", type(raw), "enh", type(enh))
+        if type(raw) != torch.Tensor:
+            raw = torch.from_numpy(raw).double()
+        if type(enh) != torch.Tensor:
+            enh = torch.from_numpy(enh).double()
+        r_img = raw.reshape(-1, raw.shape[2])
+        e_img = enh.reshape(-1, enh.shape[2])
+
+        # choose n_knots random knots
+        M = r_img.shape[0]
+        idxs = np.arange(M)
+        np.random.shuffle(idxs)
+        idxs = idxs[:self.n_knots[0]]
+        K = TPS_RGB_ORDER_2.build_k_train(r_img[idxs,:], l=l)
+        y = torch.vstack((e_img[idxs,:], torch.zeros((self.d_null,3))))
+        lambdas = np.ones((1,raw.shape[2]))*l
+        d = {'xs': torch.tensor(r_img[idxs,:].detach().numpy(), dtype=torch.float64).requires_grad_(), 
+			 'ys': torch.tensor(e_img[idxs,:].detach().numpy(), dtype=torch.float64).requires_grad_(),
+			 'lambdas': torch.tensor(lambdas, dtype=torch.float64).requires_grad_()}
+        return d
 
 
 class TPS_order2_RGB_oracle(AbstractOracle):
@@ -199,6 +261,6 @@ raw = np.asarray( Image.open("raw.jpg") )
 enh = np.asarray( Image.open("target.jpg") )
 
 
-x = TPS_order2_RGB_oracle().fit(raw, enh)
+x = TPS_order2_oracle_slow_train().fit(raw, enh)
 
 print(x)
