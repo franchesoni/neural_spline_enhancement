@@ -18,7 +18,7 @@ class FiveKDataset(Dataset):
         dnr_C_dir: path to directory "C" as downloaded from https://www.dropbox.com/sh/web5of2dswd55b3/AABs5xY3V1CXEzfGWzBw9OUQa?dl=0&preview=C.zip
         mode: 'train' or 'test' (made using random250.txt split)
         limit_to: limit the number of images in the set
-        transform: 'resize' or None, resize to (224, 224)
+        transform: 'resize' or None, resize to (256, 256)
         """
         assert mode in [
             "train",
@@ -43,15 +43,20 @@ class FiveKDataset(Dataset):
             self.data_Path / self.mode / "target" / self.img_names[idx]
         )
         raw, target = Image.open(raw_img_path), Image.open(target_img_path)
-        if self.transform == "resize":  # use NEAREST because of speed, use 224 because it captures both colors and semantics
+        if (
+            self.transform == "resize"
+        ):  # use NEAREST because of speed, use 256 because it captures both colors and semantics
             raw, target = raw.resize(
-                (224, 224), resample=Image.Resampling.NEAREST
-            ), target.resize((224, 224), resample=Image.Resampling.NEAREST)
-        return self.minmaxnorm(torch.from_numpy(np.array(raw))).permute(2, 0, 1), self.minmaxnorm(torch.from_numpy(np.array(target)).permute(2, 0, 1))  
-    
+                (256, 256), resample=Image.Resampling.NEAREST
+            ), target.resize((256, 256), resample=Image.Resampling.NEAREST)
+        return self.minmaxnorm(torch.from_numpy(np.array(raw))).permute(
+            2, 0, 1
+        ), self.minmaxnorm(torch.from_numpy(np.array(target)).permute(2, 0, 1))
+
     def minmaxnorm(self, x):
         """Normalize between min and max to get x in [0, 1]"""
         return (x - x.min()) / (x.max() - x.min())
+
 
 class FiveKDataModule(pl.LightningDataModule):
     """
@@ -63,6 +68,7 @@ class FiveKDataModule(pl.LightningDataModule):
     Train data are the first 4500 images in the "train" folder.
     Val data are the last 250 images in the "train" folder (not resized).
     """
+
     def __init__(
         self,
         dnr_C_dir: str = "/home/franchesoni/data/mit5k/dnr/C",
@@ -75,35 +81,40 @@ class FiveKDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.transform = transform
         assert transform == "resize" or batch_size == 1
-        self.train_dl_kwargs = dict(
+        self.train_dl_kwargs = (
+            dict(
                 shuffle=True,
                 num_workers=8,
                 pin_memory=True,
                 prefetch_factor=16,
                 persistent_workers=True,
-            ) if dl_fast else {'shuffle':True}
+            )
+            if dl_fast
+            else {"shuffle": True}
+        )
 
     def setup(self, stage: Optional[str] = None):
         self.train_dataset = FiveKDataset(
             self.data_dir, "train", self.transform
         )
         self.train_dataset.img_names = self.train_dataset.img_names[:4500]
-        self.val_dataset = FiveKDataset(
-            self.data_dir, "train", None
-        )
+        self.val_dataset = FiveKDataset(self.data_dir, "train", None)
         self.val_dataset.img_names = self.val_dataset.img_names[4500:]
-        self.test_dataset = FiveKDataset(
-            self.data_dir, "test", None 
-        )
+        self.test_dataset = FiveKDataset(self.data_dir, "test", None)
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, **self.train_dl_kwargs)
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            **self.train_dl_kwargs,
+        )
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset, batch_size=1)
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=1)
+
 
 def find_smallest_sides():
     data_dir = "/home/franchesoni/data/mit5k/dnr/C"

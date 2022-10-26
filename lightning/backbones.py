@@ -6,6 +6,7 @@ import numpy as np
 
 class SpliNetBackbone(nn.Module):
     """Backbone extracted from https://github.com/dros1986/neural_spline_enhancement/blob/ce99d4e9cb57f2524d8409b6a47b86b1e0b778e6/NeuralSpline.py#L17"""
+
     def __init__(
         self,
         n=10,
@@ -14,6 +15,7 @@ class SpliNetBackbone(nn.Module):
         downsample_strategy="avgpool",
         dropout=0.0,
         n_input_channels=3,
+        n_output_channels=3,
     ):
         super().__init__()
         # define class params
@@ -40,7 +42,7 @@ class SpliNetBackbone(nn.Module):
                     nn.Sequential(
                         nn.Linear(8 * nc, 8 * nc),
                         nn.ReLU(True),
-                        nn.Linear(8 * nc, 3 * n),
+                        nn.Linear(8 * nc, n_output_channels * n),
                     )
                 )
         elif downsample_strategy == "avgpool":
@@ -51,7 +53,7 @@ class SpliNetBackbone(nn.Module):
                     nn.Sequential(
                         nn.Linear(8 * nc, 8 * nc),
                         nn.ReLU(True),
-                        nn.Linear(8 * nc, 3 * n),
+                        nn.Linear(8 * nc, n_output_channels * n),
                     )
                 )
         elif downsample_strategy == "convs":
@@ -71,7 +73,7 @@ class SpliNetBackbone(nn.Module):
                     nn.Sequential(
                         nn.Linear(32 * nc, 16 * nc),
                         nn.ReLU(True),
-                        nn.Linear(16 * nc, 3 * n),
+                        nn.Linear(16 * nc, n_output_channels * n),
                     )
                 )
         else:
@@ -79,7 +81,7 @@ class SpliNetBackbone(nn.Module):
                 nn.Conv2d(8 * nc, 8 * nc, kernel_size=1, stride=1, padding=0),
                 nn.BatchNorm2d(8 * nc, momentum=momentum),
                 nn.ReLU(True),
-                nn.Conv2d(8 * nc, 3 * n, kernel_size=1, stride=1, padding=0),
+                nn.Conv2d(8 * nc, n_output_channels * n, kernel_size=1, stride=1, padding=0),
                 nn.BatchNorm2d(3 * n, momentum=momentum),
                 nn.ReLU(True),
                 nn.AvgPool2d(7, stride=1),
@@ -96,9 +98,10 @@ class SpliNetBackbone(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+        self.n_output_channels = n_output_channels
 
     def forward(self, batch):
-        assert batch.size(2) == 224 and batch.size(3) == 224
+        assert batch.size(2) == 256 and batch.size(3) == 256
         # get xs of the points with CNN
         ys = F.relu(self.c1(batch))
         ys = self.b2(F.relu(self.c2(ys)))
@@ -109,17 +112,15 @@ class SpliNetBackbone(nn.Module):
         if self.dropout > 0.0 and self.training:
             ys = F.dropout(ys, p=self.dropout, training=self.training)
         ys = torch.cat(
-            [l(ys).view(-1, 3, self.n).unsqueeze(1) for l in self.fc], 1
+            [l(ys).view(-1, self.n_output_channels, self.n).unsqueeze(1) for l in self.fc], 1
         )  # nexp*(bs,3*n) -> (bs,nexp,3,n)
         return ys
 
+
 class GammaBackbone(nn.Module):
-  def __init__(self):
-    super().__init__()
-    self.gamma = torch.nn.Parameter(torch.ones((1)))
+    def __init__(self):
+        super().__init__()
+        self.gamma = torch.nn.Parameter(torch.ones((1)))
 
-  def forward(self, batch):
-    return self.gamma
-
-
-
+    def forward(self, batch):
+        return self.gamma
