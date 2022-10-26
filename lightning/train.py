@@ -2,7 +2,7 @@ from torch.nn import MSELoss
 import pytorch_lightning as pl
 
 
-from model import LightningLUTNet, AverageGammaLUTNet, AdaptiveGammaLUTNet
+from model import LightningLUTNet, AverageGammaLUTNet, AdaptiveGammaLUTNet, SimplestSpline
 from data import FiveKDataModule
 
 def train_average_gamma():
@@ -14,13 +14,19 @@ def train_average_gamma():
 def train_adaptive_gamma():
   lutnet = AdaptiveGammaLUTNet()
   PLlutnet = LightningLUTNet(lutnet, loss_fn=MSELoss())
+  trainer = pl.Trainer(fast_dev_run=True, overfit_batches=1, max_time='0:0:0:30', log_every_n_steps=1, )
+  trainer.fit(PLlutnet, datamodule=FiveKDataModule(batch_size=8, transform='resize'))
+
+def train_simplest_spline():
+  lutnet = SimplestSpline()
+  PLlutnet = LightningLUTNet(lutnet, loss_fn=MSELoss())
   trainer = pl.Trainer(fast_dev_run=False, overfit_batches=1, max_time='0:0:0:30', log_every_n_steps=1, )
   trainer.fit(PLlutnet, datamodule=FiveKDataModule(batch_size=8, transform='resize'))
 
-
 if __name__ == '__main__':
   # train_average_gamma()
-  train_adaptive_gamma()
+  # train_adaptive_gamma()
+  train_simplest_spline()
 
   
 

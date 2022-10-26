@@ -1,3 +1,4 @@
+from numpy import index_exp
 import pytorch_lightning as pl
 from torch import nn
 import torch
@@ -25,30 +26,33 @@ class AdaptiveGammaLUTNet(nn.Module):
 class SimplestSpline(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = SpliNetBackbone(n=5, nc=8, n_input_channels=3)
+        self.backbone = SpliNetBackbone(n=5, nc=8, n_input_channels=3, n_output_channels=1)
 
     def get_params(self, x):
         return {"ys": self.backbone(x)}
 
-  def enhance(self, x, params):
-    # x is (B, 3, H, W)
-    # something sophisticated
-	out = x.clone()
-    for channel_ind in range(x.shape[1]):
-      out[:, channel_ind] = self.apply_to_one_channel(out[:, channel_ind], params)
-	return out
-  
-  def apply_to_one_channel(self, x, params):
-    # x is (B, H, W)
-    # params is {'ys': ys} and ys is (B, N=5)
-    # something sophisticated
-    y_ctrl_vals = params['ys']
-    x_ctrl_vals = np.linspace(0, 255, len(y_ctrl_vals)+2)
-    slopes = np.linalg.diff(y_ctrl_vals)/(x_ctrl_vals[1]-x_ctrl_vals[0])
-    out = y_ctrl_vals[1] - nn.functional.relu(x_ctrl_vals[1]-x)*slopes[0]
-    for i in range(2,len(y_ctrl_vals)):
-        out += y_ctrl_vals[i] - nn.functional.relu(x_ctrl_vals[i]-x)*slopes[i-1]
-    return out
+    def enhance(self, x, params):
+      # x is (B, 3, H, W)  params['ys'] is (B, 1, 1, N)
+      # something sophisticated
+      out = x.clone()
+      for channel_ind in range(x.shape[1]):
+        out[:, channel_ind] = self.apply_to_one_channel(out[:, channel_ind], params)
+      return out
+    
+    def apply_to_one_channel(self, x, params):
+      # x is (B, H, W)
+      # params is {'ys': ys} and ys is (B, 1, 1, N=5)
+      # something sophisticated
+      ys = params['ys'].reshape(params['ys'].shape[0], params['ys'].shape[-1])  # (B, N)
+      N = ys.shape[-1]
+      xs = torch.linspace(0, 255, N+2)[None]  # (1, N)
+      slopes = torch.diff(ys)/(xs[:, 1]-xs[:, 0])
+      out = torch.zeros_like(x)
+      for i in range(1, N):
+          locations = (x < xs[:, i]) * (xs[:, i-1] <= x)
+          res = ys[:, i, None, None] - (xs[:, i]-x)*slopes[:, i-1, None, None]
+          out[locations] = res[locations]
+      return out
 
     
 
