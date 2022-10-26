@@ -30,9 +30,9 @@ class SimplestSpline(nn.Module):
     y_ctrl_vals = params['ys']
     x_ctrl_vals = np.linspace(0, 255, len(y_ctrl_vals)+2)
     slopes = np.linalg.diff(y_ctrl_vals)/(x_ctrl_vals[1]-x_ctrl_vals[0])
-    out = x*slopes[0]
-    for i in range(1,len(y_ctrl_vals)+1):
-        out += nn.functional.relu(x-x_ctrl_vals[i])*slopes[i]
+    out = y_ctrl_vals[1] - nn.functional.relu(x_ctrl_vals[1]-x)*slopes[0]
+    for i in range(2,len(y_ctrl_vals)):
+        out += y_ctrl_vals[i] - nn.functional.relu(x_ctrl_vals[i])*slopes[i-1]
     return out
 
     
