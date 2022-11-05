@@ -34,6 +34,7 @@ class SimplestSpline(nn.Module):
     def enhance(self, x, params):
         # x is (B, 3, H, W)  params['ys'] is (B, 1, 1, N)
         # something sophisticated
+        print("SHAPE!", params['ys'].shape, x.shape)
         out = x.clone()
         for channel_ind in range(x.shape[1]):
             out[:, channel_ind] = self.apply_to_one_channel(out[:, channel_ind], params)
@@ -64,7 +65,7 @@ class ThinnestPlateSpline(nn.Module):
         nout = self.backbone(x)
         xs = nout[:,:,:,:self.nknots]
         ys = nout[:,:,:,self.nknots:-1]
-        ls = nout[:,:,:,-1]
+        ls = nout[:,:,:,-1:]
         return {"ys": ys, "xs":xs, "lambdas":ls/lambdas_scale}
 
     @staticmethod
@@ -82,49 +83,41 @@ class ThinnestPlateSpline(nn.Module):
     @staticmethod
     def build_k_train(xs_control, l):
         # "classic" TPS energy (m=2), null space is just the affine functions span{1, r, g, b} 
-        # xs_control : (Bx)Nx3
-        # xs_eval : (Bx)Mx3
-        # returns (Bx)Mx(N+4) matrix
-        M = xs_control.shape[-1]
+        # xs_control : B x n_expert x n_channel x n_knots
+        # l : B 
+        # returns Bx(number_knots+dim_null)x(number_knots+dim_null) matrix
+        B = xs_control.shape[0]
+        n_knots = xs_control.shape[-1]
+        print("L", l)
+        assert len(l.shape)==1
         dim_null = xs_control.shape[-2]+1
         print("xs_control", xs_control.shape)
+        identity = torch.zeros(B, n_knots, n_knots)
+        identity = identity + torch.eye(n_knots)[None]
+        print("identity", identity)
         d = torch.linalg.norm(
             xs_control[:,0,:,None] - xs_control[:,0,None], axis=2
-        )  #+ l*torch.eye(M)
+        )  + l*identity
         print("d", d.shape)
         top = torch.hstack((d, torch.ones((M,1)), xs_control))
         bottom = torch.hstack((torch.vstack((torch.ones((1,M)), xs_control.T)), torch.zeros((dim_null+1,dim_null+1))))
         return torch.vstack((top,bottom)).requires_grad_()
 
-    def predict(self, raw, params):
-
-        '''xs: N x 3 (input color dim) x 3 (output color dim) [control points]
-        alphas: (N+4) x 3 (output color dim) [spline weights]
-        raw: HxWx3
-        '''
-        fimg = raw.reshape(-1, raw.shape[2])  # Mx3, flattened image
-        out = torch.empty_like(raw.reshape(-1, raw.shape[2]))
-        for i in range(raw.shape[2]):
-            K_ch_i = self.build_k_train(params['xs'], l=params['lambdas'][:,i])
+    def enhance(self, x, params, lscale=10000):
+        # x is (B, H, W, 3)  params['ys'] is (B, n_experts, n_channels, n_knots); params['xs'] is (B, n_experts, n_channels, n_knots); params['lambdas'] is (B, n_experts, n_channels, n_knots))
+        # we have n_knots total control points -- the same ones in each channel -- and 3 lambdas
+        B, _, H, W = x.shape
+        print("x shape", x.shape)
+        fimg = x.clone().reshape(B, 3, H*W)
+        out = torch.empty_like(fimg)
+        for i in range(x.shape[2]):
+            K_ch_i = self.build_k_train(params['xs'], l=params['lambdas'][:,:,i,:].squeeze())
             K_pred_i = self.build_k(fimg, params['xs'])
             nctrl = len(params['xs'])
             zs = torch.zeros((raw.shape[2]+1,1)).requires_grad_()
             ys = params['ys'][:,i].reshape((nctrl,1))
             out[:,i] = K_pred_i @ torch.linalg.pinv(K_ch_i) @ (torch.cat((ys,zs)).flatten())
-        return out.reshape(raw.shape)  # HxWx3
-
-    def enhance(self, x, params, lscale=10000):
-        # x is (B, 3, H, W);  params['ys'] is (B, 3, N); params['xs'] is (B, 3, N); params['lambdas'] is (B, 3)
-        # we have N total control points -- the same ones in each channel -- and 3 lambdas
-        out = x.clone()
-        xs = params['xs']
-        ys = params['ys']
-        ls = params['lambdas']
-        print("XS", xs.shape)
-        print("YS", ys.shape)
-        print("ls", ls.shape)
-        out = self.predict(out, params)
-        return out
+        return out.reshape(x.shape)  # HxWx3
 
 
 
