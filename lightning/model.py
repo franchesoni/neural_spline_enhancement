@@ -34,7 +34,6 @@ class SimplestSpline(nn.Module):
     def enhance(self, x, params):
         # x is (B, 3, H, W)  params['ys'] is (B, 1, 1, N)
         # something sophisticated
-        print("SHAPE!", params['ys'].shape, x.shape)
         out = x.clone()
         for channel_ind in range(x.shape[1]):
             out[:, channel_ind] = self.apply_to_one_channel(out[:, channel_ind], params)
@@ -74,11 +73,13 @@ class ThinnestPlateSpline(nn.Module):
         # xs_control : (Bx)Nx3
         # xs_eval : (Bx)Mx3
         # returns (Bx)Mx(N+4) matrix
-        M = xs_eval.shape[-1]
+        xs_control = xs_control[:, 0]  # (B, n_channels, n_knots)
+        B, n_channels, n_knots = xs_control.shape
+        B, n_channels, M = xs_eval.shape
         d = torch.linalg.norm(
-            xs_eval[:,0,:,None] - xs_control[:,0,None], axis=2  # M x 1 x 3  # 1 x N x 3
-        )  # M x N x 3
-        return torch.hstack((d, torch.ones((M,1)), xs_eval)).requires_grad_()
+            xs_eval.reshape(B, n_channels, M, 1) - xs_control.reshape(B, n_channels, 1, n_knots), axis=1
+        )  # (B, M, n_knots)
+        return torch.concat((d, torch.ones((B, M,1)), xs_eval.permute(0, 2, 1)), axis=2)
 
     @staticmethod
     def build_k_train(xs_control, l):
@@ -86,37 +87,35 @@ class ThinnestPlateSpline(nn.Module):
         # xs_control : B x n_expert x n_channel x n_knots
         # l : B 
         # returns Bx(number_knots+dim_null)x(number_knots+dim_null) matrix
-        B = xs_control.shape[0]
-        n_knots = xs_control.shape[-1]
-        print("L", l)
+        xs_control = xs_control[:, 0]  # (B, 3, n_knots)
+        B, n_channels, n_knots = xs_control.shape
         assert len(l.shape)==1
-        dim_null = xs_control.shape[-2]+1
-        print("xs_control", xs_control.shape)
+        dim_null = n_channels +1
         identity = torch.zeros(B, n_knots, n_knots)
         identity = identity + torch.eye(n_knots)[None]
-        print("identity", identity)
         d = torch.linalg.norm(
-            xs_control[:,0,:,None] - xs_control[:,0,None], axis=2
-        )  + l*identity
-        print("d", d.shape)
-        top = torch.hstack((d, torch.ones((M,1)), xs_control))
-        bottom = torch.hstack((torch.vstack((torch.ones((1,M)), xs_control.T)), torch.zeros((dim_null+1,dim_null+1))))
-        return torch.vstack((top,bottom)).requires_grad_()
+            xs_control.reshape(B, n_channels, n_knots, 1) - xs_control.reshape(B, n_channels, 1, n_knots), axis=1
+        )  + l.reshape(len(l), 1, 1) *identity
+        exs_control = torch.hstack((torch.ones((B, 1, n_knots)), xs_control))  # concat axis=1
+        left = torch.concat((d, exs_control), axis=1)  # hstack
+        right = torch.concat((exs_control.permute(0, 2, 1), torch.zeros((B, dim_null, dim_null))), axis=1)  # hstack
+        K = torch.concat((left, right), axis=2)  # vstack
+        return K
 
     def enhance(self, x, params, lscale=10000):
-        # x is (B, H, W, 3)  params['ys'] is (B, n_experts, n_channels, n_knots); params['xs'] is (B, n_experts, n_channels, n_knots); params['lambdas'] is (B, n_experts, n_channels, n_knots))
+        # x is (B, 3, H, W)  params['ys'] is (B, n_experts, n_channels, n_knots); params['xs'] is (B, n_experts, n_channels, n_knots); params['lambdas'] is (B, n_experts, n_channels, n_knots))
         # we have n_knots total control points -- the same ones in each channel -- and 3 lambdas
-        B, _, H, W = x.shape
-        print("x shape", x.shape)
+        B, n_channels, H, W = x.shape
         fimg = x.clone().reshape(B, 3, H*W)
         out = torch.empty_like(fimg)
-        for i in range(x.shape[2]):
-            K_ch_i = self.build_k_train(params['xs'], l=params['lambdas'][:,:,i,:].squeeze())
+        for i in range(n_channels):
+            l = params['lambdas'][:,:,i,:]  # (B, 1, 1)
+            K_ch_i = self.build_k_train(params['xs'], l=l.reshape(len(l)))
             K_pred_i = self.build_k(fimg, params['xs'])
-            nctrl = len(params['xs'])
-            zs = torch.zeros((raw.shape[2]+1,1)).requires_grad_()
-            ys = params['ys'][:,i].reshape((nctrl,1))
-            out[:,i] = K_pred_i @ torch.linalg.pinv(K_ch_i) @ (torch.cat((ys,zs)).flatten())
+            B, _, n_channels, n_knots = params['xs'].shape
+            zs = torch.zeros((B, n_channels+1,1)).requires_grad_()
+            ys = params['ys'][:,0,i].reshape((B, n_knots, 1))
+            out[:,i] = (K_pred_i @ torch.linalg.pinv(K_ch_i) @ (torch.cat((ys,zs), axis=1)))[..., -1]
         return out.reshape(x.shape)  # HxWx3
 
 
