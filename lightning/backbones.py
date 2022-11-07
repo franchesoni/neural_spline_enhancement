@@ -1,7 +1,6 @@
 from torch import nn
 import torch
 import torch.nn.functional as F
-import numpy as np
 
 
 class SpliNetBackbone(nn.Module):
@@ -81,7 +80,13 @@ class SpliNetBackbone(nn.Module):
                 nn.Conv2d(8 * nc, 8 * nc, kernel_size=1, stride=1, padding=0),
                 nn.BatchNorm2d(8 * nc, momentum=momentum),
                 nn.ReLU(True),
-                nn.Conv2d(8 * nc, n_output_channels * n, kernel_size=1, stride=1, padding=0),
+                nn.Conv2d(
+                    8 * nc,
+                    n_output_channels * n,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                ),
                 nn.BatchNorm2d(3 * n, momentum=momentum),
                 nn.ReLU(True),
                 nn.AvgPool2d(7, stride=1),
@@ -112,7 +117,11 @@ class SpliNetBackbone(nn.Module):
         if self.dropout > 0.0 and self.training:
             ys = F.dropout(ys, p=self.dropout, training=self.training)
         ys = torch.cat(
-            [l(ys).view(-1, self.n_output_channels, self.n).unsqueeze(1) for l in self.fc], 1
+            [
+                layer(ys).view(-1, self.n_output_channels, self.n).unsqueeze(1)
+                for layer in self.fc
+            ],
+            1,
         )  # nexp*(bs,3*n) -> (bs,nexp,3,n)
         return ys
 

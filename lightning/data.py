@@ -1,7 +1,5 @@
-from multiprocessing.sharedctypes import Value
 from pathlib import Path
 import os
-import copy
 import torch
 from typing import Optional
 
@@ -9,7 +7,7 @@ import numpy as np
 import tqdm
 from PIL import Image
 import pytorch_lightning as pl
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader
 
 
 class FiveKDataset(Dataset):
@@ -45,7 +43,7 @@ class FiveKDataset(Dataset):
         raw, target = Image.open(raw_img_path), Image.open(target_img_path)
         if (
             self.transform == "resize"
-        ):  # use NEAREST because of speed, use 256 because it captures both colors and semantics
+        ):  # use NEAREST for speed, use 256 for colors and semantics
             raw, target = raw.resize(
                 (256, 256), resample=Image.Resampling.NEAREST
             ), target.resize((256, 256), resample=Image.Resampling.NEAREST)
@@ -63,7 +61,7 @@ class FiveKDataModule(pl.LightningDataModule):
     Pytorch Lightning DataModule holding dataloaders for each mode.
     Same parameters than in dataset.
     Dataloading with multiprocessing if `dl_fast==True`.
-    If not resizing, batch size should be 1 (otherwise we break default_collate)
+    If not resizing, batch size should be 1 (else we break default_collate)
     Test set is not resized.
     Train data are the first 4500 images in the "train" folder.
     Val data are the last 250 images in the "train" folder (not resized).
