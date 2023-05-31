@@ -55,7 +55,7 @@ class SimplestSpline(nn.Module):
             out[locations] = res[locations]
         return out
 
-class ThinnestPlateSpline(nn.Module):
+class ThinnestPlateSpline2(nn.Module):
     def __init__(self, nknots=10):
         super().__init__()
         self.backbone = SpliNetBackbone(n=(2*nknots+1), nc=8, n_input_channels=3, n_output_channels=3)
@@ -78,6 +78,7 @@ class ThinnestPlateSpline(nn.Module):
         d = torch.linalg.norm(
             xs_eval[:,0,:,None] - xs_control[:,0,None], axis=2  # M x 1 x 3  # 1 x N x 3
         )  # M x N x 3
+        d = d*torch.log(d)
         return torch.hstack((d, torch.ones((M,1)), xs_eval)).requires_grad_()
 
     @staticmethod
@@ -89,7 +90,7 @@ class ThinnestPlateSpline(nn.Module):
         B = xs_control.shape[0]
         n_knots = xs_control.shape[-1]
         print("L", l)
-        assert len(l.shape)==1
+#        assert len(l.shape)==1
         dim_null = xs_control.shape[-2]+1
         print("xs_control", xs_control.shape)
         identity = torch.zeros(B, n_knots, n_knots)
@@ -119,6 +120,152 @@ class ThinnestPlateSpline(nn.Module):
             out[:,i] = K_pred_i @ torch.linalg.pinv(K_ch_i) @ (torch.cat((ys,zs)).flatten())
         return out.reshape(x.shape)  # HxWx3
 
+class TPS_Alpha(nn.Module):
+    def __init__(self, nknots=50):
+        super().__init__()
+        self.backbone = SpliNetBackbone(
+            n=(2 * nknots + 4), nc=8, n_input_channels=3, n_output_channels=3
+        )
+        self.nknots = nknots
+
+    def get_params(self, x, lambda_param=0.1):
+        nout = self.backbone(x)
+        xs = nout[:, :, :, : self.nknots]
+        alphas = nout[:, :, :, self.nknots:]
+        return {"xs": xs, "alphas": alphas}
+
+    @staticmethod
+    def build_k(xs_eval, xs_control):
+        # "classic" TPS energy (m=2), null space is just the affine
+        # functions span{1, r, g, b} if for instance the dimension of the
+        # null space is 3
+        # xs_control : (Bx)Nx3
+        # xs_eval : (Bx)Mx3
+        # returns (Bx)Mx(N+4) matrix
+        xs_control = xs_control[:, 0]  # (B, n_channels, n_knots)
+        B, n_channels, n_knots = xs_control.shape
+        B, n_channels, M = xs_eval.shape
+        d = torch.linalg.norm(
+            xs_eval.reshape(B, n_channels, M, 1)
+            - xs_control.reshape(B, n_channels, 1, n_knots),
+            axis=1,
+        )  # (B, M, n_knots)
+        return torch.concat(
+            (d, torch.ones((B, M, 1)), xs_eval.permute(0, 2, 1)), axis=2
+        )
+
+    def enhance(self, x, params, lscale=10000):
+        # x is (B, 3, H, W)  params['ys'] is (B, n_experts, n_channels,
+        # n_knots); params['xs'] is (B, n_experts, n_channels, n_knots);
+        # params['lambdas'] is (B, n_experts, n_channels, n_knots))
+        # we have n_knots total control points -- the same ones in each
+        # channel -- and 3 lambdas
+        B, n_channels, H, W = x.shape
+        fimg = x.clone().reshape(B, 3, H * W)
+        out = torch.empty_like(fimg)
+        for i in range(n_channels):
+            K_pred_i = self.build_k(fimg, params["xs"])
+            B, _, n_channels, n_knots = params["xs"].shape
+            alphas = params["alphas"][:, 0, i].reshape((B, n_knots+n_channels+1, 1))
+            out[:, i] = (K_pred_i @ alphas)[..., -1]
+        return out.reshape(x.shape)  # HxWx3
+
+
+
+class ThinnestPlateSpline(nn.Module):
+    def __init__(self, nknots=50):
+        super().__init__()
+        self.backbone = SpliNetBackbone(
+            n=(2 * nknots + 1), nc=8, n_input_channels=3, n_output_channels=3
+        )
+        self.nknots = nknots
+
+    def get_params(self, x, lambdas_scale=1000):
+        nout = self.backbone(x)
+        xs = nout[:, :, :, : self.nknots]
+        ys = nout[:, :, :, self.nknots : -1]
+        ls = nout[:, :, :, -1:]
+        return {"ys": ys, "xs": xs, "lambdas": ls / lambdas_scale}
+
+    @staticmethod
+    def build_k(xs_eval, xs_control):
+        # "classic" TPS energy (m=2), null space is just the affine
+        # functions span{1, r, g, b} if for instance the dimension of the
+        # null space is 3
+        # xs_control : (Bx)Nx3
+        # xs_eval : (Bx)Mx3
+        # returns (Bx)Mx(N+4) matrix
+        xs_control = xs_control[:, 0]  # (B, n_channels, n_knots)
+        B, n_channels, n_knots = xs_control.shape
+        B, n_channels, M = xs_eval.shape
+        d = torch.linalg.norm(
+            xs_eval.reshape(B, n_channels, M, 1)
+            - xs_control.reshape(B, n_channels, 1, n_knots),
+            axis=1,
+        )  # (B, M, n_knots)
+        return torch.concat(
+            (d, torch.ones((B, M, 1)), xs_eval.permute(0, 2, 1)), axis=2
+        )
+
+    @staticmethod
+    def build_k_train(xs_control, lambda_param):
+        # "classic" TPS energy (m=2), null space is just the affine
+        # functions span{1, r, g, b}
+        # xs_control : B x n_expert x n_channel x n_knots
+        # l : B
+        # returns Bx(number_knots+dim_null)x(number_knots+dim_null) matrix
+        xs_control = xs_control[:, 0]  # (B, 3, n_knots)
+        B, n_channels, n_knots = xs_control.shape
+        assert len(lambda_param.shape) == 1
+        dim_null = n_channels + 1
+        identity = torch.zeros(B, n_knots, n_knots)
+        identity = identity + torch.eye(n_knots)[None]
+        d = (
+            torch.linalg.norm(
+                xs_control.reshape(B, n_channels, n_knots, 1)
+                - xs_control.reshape(B, n_channels, 1, n_knots),
+                axis=1,
+            )
+            + lambda_param.reshape(len(lambda_param), 1, 1) * identity
+        )
+        exs_control = torch.hstack(
+            (torch.ones((B, 1, n_knots)), xs_control)
+        )  # concat axis=1
+        left = torch.concat((d, exs_control), axis=1)  # hstack
+        right = torch.concat(
+            (
+                exs_control.permute(0, 2, 1),
+                torch.zeros((B, dim_null, dim_null)),
+            ),
+            axis=1,
+        )  # hstack
+        K = torch.concat((left, right), axis=2)  # vstack
+        return K
+
+    def enhance(self, x, params, lscale=10000):
+        # x is (B, 3, H, W)  params['ys'] is (B, n_experts, n_channels,
+        # n_knots); params['xs'] is (B, n_experts, n_channels, n_knots);
+        # params['lambdas'] is (B, n_experts, n_channels, n_knots))
+        # we have n_knots total control points -- the same ones in each
+        # channel -- and 3 lambdas
+        B, n_channels, H, W = x.shape
+        fimg = x.clone().reshape(B, 3, H * W)
+        out = torch.empty_like(fimg)
+        for i in range(n_channels):
+            lambda_param = params["lambdas"][:, :, i, :]  # (B, 1, 1)
+            K_ch_i = self.build_k_train(
+                params["xs"], lambda_param=lambda_param.reshape(len(lambda_param))
+            )
+            K_pred_i = self.build_k(fimg, params["xs"])
+            B, _, n_channels, n_knots = params["xs"].shape
+            zs = torch.zeros((B, n_channels + 1, 1)).requires_grad_()
+            ys = params["ys"][:, 0, i].reshape((B, n_knots, 1))
+            out[:, i] = (
+                K_pred_i
+                @ torch.linalg.pinv(K_ch_i)
+                @ (torch.cat((ys, zs), axis=1))
+            )[..., -1]
+        return out.reshape(x.shape)  # HxWx3
 
 
 class AverageGammaLUTNet(nn.Module):
