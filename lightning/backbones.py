@@ -116,7 +116,6 @@ class SpliNetBackbone(nn.Module):
         )  # nexp*(bs,3*n) -> (bs,nexp,3,n)
         return ys
 
-
 class GammaBackbone(nn.Module):
     def __init__(self):
         super().__init__()
